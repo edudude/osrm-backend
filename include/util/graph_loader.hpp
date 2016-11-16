@@ -9,6 +9,7 @@
 #include "util/fingerprint.hpp"
 #include "util/simple_logger.hpp"
 #include "util/typedefs.hpp"
+#include "storage/io.hpp"
 
 #include <boost/assert.hpp>
 #include <boost/filesystem.hpp>
@@ -32,27 +33,17 @@ namespace util
  * The since the restrictions reference nodes using their external node id,
  * we need to renumber it to the new internal id.
 */
-inline unsigned loadRestrictionsFromFile(std::istream &input_stream,
+inline unsigned loadRestrictionsFromFile(std::string &filename,
                                          std::vector<extractor::TurnRestriction> &restriction_list)
 {
-    const FingerPrint fingerprint_valid = FingerPrint::GetValid();
-    FingerPrint fingerprint_loaded;
-    unsigned number_of_usable_restrictions = 0;
-    input_stream.read((char *)&fingerprint_loaded, sizeof(FingerPrint));
-    if (!fingerprint_loaded.TestContractor(fingerprint_valid))
-    {
-        SimpleLogger().Write(logWARNING) << ".restrictions was prepared with different build.\n"
-                                            "Reprocess to get rid of this warning.";
-    }
-
-    input_stream.read((char *)&number_of_usable_restrictions, sizeof(unsigned));
+    storage::io::FileReader file(filename, storage::io::FileReader::VerifyFingerprint);
+    unsigned number_of_usable_restrictions = file.ReadElementCount32();
+    
     restriction_list.resize(number_of_usable_restrictions);
-    if (number_of_usable_restrictions > 0)
-    {
-        input_stream.read((char *)restriction_list.data(),
-                          number_of_usable_restrictions * sizeof(extractor::TurnRestriction));
+    if (number_of_usable_restrictions > 0) {
+        file.ReadInto(restriction_list.data(), number_of_usable_restrictions);
     }
-
+    
     return number_of_usable_restrictions;
 }
 
@@ -62,32 +53,21 @@ inline unsigned loadRestrictionsFromFile(std::istream &input_stream,
  *  - list of traffic lights
  *  - nodes indexed by their internal (non-osm) id
  */
-inline NodeID loadNodesFromFile(std::istream &input_stream,
+inline NodeID loadNodesFromFile(std::string &filename,
                                 std::vector<NodeID> &barrier_node_list,
                                 std::vector<NodeID> &traffic_light_node_list,
                                 std::vector<extractor::QueryNode> &node_array)
 {
-    const FingerPrint fingerprint_valid = FingerPrint::GetValid();
-    FingerPrint fingerprint_loaded;
-    input_stream.read(reinterpret_cast<char *>(&fingerprint_loaded), sizeof(FingerPrint));
+    storage::io::FileReader file(filename, storage::io::FileReader::VerifyFingerprint);
+    NodeID number_of_nodes = file.ReadElementCount32();
+    SimpleLogger().Write() << "Importing number_of_nodes new = " << number_of_nodes << " nodes ";
 
-    if (!fingerprint_loaded.TestContractor(fingerprint_valid))
-    {
-        SimpleLogger().Write(logWARNING) << ".osrm was prepared with different build.\n"
-                                            "Reprocess to get rid of this warning.";
-    }
-
-    NodeID n;
-    input_stream.read(reinterpret_cast<char *>(&n), sizeof(NodeID));
-    SimpleLogger().Write() << "Importing n = " << n << " nodes ";
-
-    node_array.reserve(n);
+    node_array.reserve(number_of_nodes);
 
     extractor::ExternalMemoryNode current_node;
-    for (NodeID i = 0; i < n; ++i)
+    for (NodeID i = 0; i < number_of_nodes; ++i)
     {
-        input_stream.read(reinterpret_cast<char *>(&current_node),
-                          sizeof(extractor::ExternalMemoryNode));
+        file.ReadInto(&current_node, 1);
         node_array.emplace_back(current_node.lon, current_node.lat, current_node.node_id);
         if (current_node.barrier)
         {
@@ -103,21 +83,24 @@ inline NodeID loadNodesFromFile(std::istream &input_stream,
     barrier_node_list.shrink_to_fit();
     traffic_light_node_list.shrink_to_fit();
 
-    return n;
+    return number_of_nodes;
 }
 
 /**
  * Reads a .osrm file and produces the edges.
  */
-inline NodeID loadEdgesFromFile(std::istream &input_stream,
+inline NodeID loadEdgesFromFile(std::string &filename,
                                 std::vector<extractor::NodeBasedEdge> &edge_list)
 {
-    EdgeID m;
-    input_stream.read(reinterpret_cast<char *>(&m), sizeof(unsigned));
-    edge_list.resize(m);
-    SimpleLogger().Write() << " and " << m << " edges ";
 
-    input_stream.read((char *)edge_list.data(), m * sizeof(extractor::NodeBasedEdge));
+    storage::io::FileReader file(filename, storage::io::FileReader::VerifyFingerprint);
+    NodeID number_of_nodes = file.ReadElementCount32();
+    file.Skip<extractor::ExternalMemoryNode>(number_of_nodes);
+    EdgeID number_of_edges_filereader = file.ReadElementCount32();
+    edge_list.resize(number_of_edges_filereader);
+    SimpleLogger().Write() << " and " << number_of_edges_filereader << " edges ";
+
+    file.ReadInto(edge_list.data(), number_of_edges_filereader);
 
     BOOST_ASSERT(edge_list.size() > 0);
 
@@ -147,7 +130,7 @@ inline NodeID loadEdgesFromFile(std::istream &input_stream,
 
     SimpleLogger().Write() << "Graph loaded ok and has " << edge_list.size() << " edges";
 
-    return m;
+    return number_of_edges_filereader;
 }
 }
 }

@@ -394,11 +394,8 @@ void Extractor::FindComponents(unsigned max_edge_id,
   */
 std::shared_ptr<RestrictionMap> Extractor::LoadRestrictionMap()
 {
-    boost::filesystem::ifstream input_stream(config.restriction_file_name,
-                                             std::ios::in | std::ios::binary);
-
     std::vector<TurnRestriction> restriction_list;
-    util::loadRestrictionsFromFile(input_stream, restriction_list);
+    util::loadRestrictionsFromFile(config.restriction_file_name, restriction_list);
 
     util::SimpleLogger().Write() << " - " << restriction_list.size() << " restrictions.";
 
@@ -421,7 +418,7 @@ Extractor::LoadNodeBasedGraph(std::unordered_set<NodeID> &barrier_nodes,
     std::vector<NodeID> barrier_list;
     std::vector<NodeID> traffic_light_list;
     NodeID number_of_node_based_nodes = util::loadNodesFromFile(
-        input_stream, barrier_list, traffic_light_list, internal_to_external_node_map);
+        config.output_file_name, barrier_list, traffic_light_list, internal_to_external_node_map);
 
     util::SimpleLogger().Write() << " - " << barrier_list.size() << " bollard nodes, "
                                  << traffic_light_list.size() << " traffic lights";
@@ -435,7 +432,7 @@ Extractor::LoadNodeBasedGraph(std::unordered_set<NodeID> &barrier_nodes,
     traffic_light_list.clear();
     traffic_light_list.shrink_to_fit();
 
-    util::loadEdgesFromFile(input_stream, edge_list);
+    util::loadEdgesFromFile(config.output_file_name, edge_list);
 
     if (edge_list.empty())
     {
